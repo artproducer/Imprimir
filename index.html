@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Imprimir</title>
+    <script src="https://accounts.google.com/gsi/client"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400&display=swap');
 
@@ -413,8 +414,8 @@
         <div id="config-banner" style="display:none">
             <p>Configura tu Google OAuth Client ID.<br>
                 console.cloud.google.com → Credenciales → OAuth 2.0 → Aplicación web<br>
-                Redirect URI exacto: <strong id="showOrigin" style="color:#fff"></strong><br>
-                Debe coincidir exactamente, incluida la / final.</p>
+                Origen autorizado: <strong id="showOrigin" style="color:#fff"></strong><br>
+                Este flujo usa popup y no necesita client secret.</p>
             <input type="text" id="clientIdInput" placeholder="XXXXXXXXXXXX.apps.googleusercontent.com">
             <div class="config-actions">
                 <button type="button" onclick="saveClientId()">Guardar y continuar</button>
@@ -466,13 +467,12 @@
 
         const DEST = 'variedadeslg@print.epsonconnect.com';
         const SCOPE = 'https://www.googleapis.com/auth/gmail.send';
-        const TOKEN_URL = 'https://oauth2.googleapis.com/token';
         const SK_CID = 'print_client_id';
-        const SK_REFRESH = 'print_refresh_token';
         const SK_ACCESS = 'print_access_token';
         const SK_EXPIRY = 'print_token_expiry';
 
         let accessToken = null;
+        let tokenClient = null;
         let files = [];
 
         const dropzone = document.getElementById('dropzone');
@@ -533,48 +533,59 @@
         }
 
         // ─── PKCE helpers ──────────────────────────────────────────────────────────
-        function randomBase64url(len) {
-            const buf = crypto.getRandomValues(new Uint8Array(len));
-            return btoa(String.fromCharCode(...buf)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        }
-        async function sha256Base64url(str) {
-            const bytes = new TextEncoder().encode(str);
-            const hash = await crypto.subtle.digest('SHA-256', bytes);
-            return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        function getAuthorizedOrigin() {
+            return location.origin;
         }
 
         // ─── AUTH FLOW (Authorization Code + PKCE) ─────────────────────────────────
-        async function startAuth() {
+        function initGoogleTokenClient() {
             const clientId = getClientId();
-            if (!clientId) { banner.style.display = 'block'; return; }
+            if (!clientId) return false;
+            if (!(window.google && google.accounts && google.accounts.oauth2)) {
+                showAuthError('No se pudo cargar Google Identity Services.');
+                return false;
+            }
 
-            const verifier = randomBase64url(64);
-            const challenge = await sha256Base64url(verifier);
-            const state = randomBase64url(16);
-
-            sessionStorage.setItem('pkce_verifier', verifier);
-            sessionStorage.setItem('pkce_state', state);
-
-            const redirectUri = getRedirectUri();
-            const params = new URLSearchParams({
+            tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: clientId,
-                redirect_uri: redirectUri,
-                response_type: 'code',
                 scope: SCOPE,
-                access_type: 'offline',   // <-- pide refresh_token
-                prompt: 'select_account consent',   // <-- fuerza entrega del refresh_token
-                code_challenge: challenge,
-                code_challenge_method: 'S256',
-                state
+                callback: handleTokenResponse,
+                error_callback: (err) => {
+                    const message = err?.message || err?.type || 'Error desconocido';
+                    if (err?.type === 'popup_closed') {
+                        showAuthError('Inicio cancelado.');
+                        return;
+                    }
+                    showAuthError('Error con Google: ' + message);
+                }
             });
-            location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
+            return true;
         }
 
-        function getCanonicalPath() {
-            const path = location.pathname || '/';
-            if (path === '/index.html') return '/';
-            if (path.endsWith('/index.html')) return path.slice(0, -'index.html'.length);
-            return path;
+        function startAuth(prompt = 'consent') {
+            const clientId = getClientId();
+            if (!clientId) {
+                openConfigBanner();
+                return;
+            }
+
+            setAuthLoading();
+            if (!initGoogleTokenClient()) return;
+            tokenClient.requestAccessToken({ prompt });
+        }
+
+        function handleTokenResponse(response) {
+            if (!response) {
+                showAuthError('No se recibiÃ³ respuesta de Google.');
+                return;
+            }
+            if (response.error) {
+                showAuthError('Error al obtener token: ' + (response.error_description || response.error));
+                return;
+            }
+
+            saveTokens(response);
+            onAuthed();
         }
 
         function getRedirectUri() {
@@ -677,6 +688,39 @@
             return await refreshAccessToken();
         }
 
+        // Overrides para sitio estÃ¡tico: token directo con GIS, sin client_secret ni refresh_token
+        async function refreshAccessToken() {
+            return false;
+        }
+
+        function clearStoredTokens() {
+            [SK_ACCESS, SK_EXPIRY].forEach(k => localStorage.removeItem(k));
+        }
+
+        function saveTokens(data) {
+            accessToken = data.access_token;
+            localStorage.setItem(SK_ACCESS, data.access_token);
+            localStorage.setItem(SK_EXPIRY, String(Date.now() + ((data.expires_in || 3600) - 60) * 1000));
+        }
+
+        function isTokenValid() {
+            const expiry = parseInt(localStorage.getItem(SK_EXPIRY) || '0', 10);
+            return expiry > Date.now();
+        }
+
+        async function ensureValidToken() {
+            if (isTokenValid() && accessToken) return true;
+
+            const stored = localStorage.getItem(SK_ACCESS);
+            if (stored && isTokenValid()) {
+                accessToken = stored;
+                return true;
+            }
+
+            clearStoredTokens();
+            return false;
+        }
+
         // ─── UI states ─────────────────────────────────────────────────────────────
         function setAuthLoading() {
             authText.textContent = 'Conectando...';
@@ -691,6 +735,7 @@
             if (stored) accessToken = stored;
 
             authStat.className = 'auth-status connected';
+            authStat.style.color = '';
             authText.textContent = '✓ Sesión activa';
 
             // Botón de cerrar sesión
@@ -713,7 +758,7 @@
         }
 
         function disconnect() {
-            [SK_ACCESS, SK_REFRESH, SK_EXPIRY].forEach(k => localStorage.removeItem(k));
+            clearStoredTokens();
             accessToken = null;
             authBtn.className = '';
             authBtn.onclick = startAuth;
@@ -726,6 +771,7 @@
     </svg>
     Conectar con Google`;
             authStat.className = 'auth-status';
+            authStat.style.color = '';
             authText.textContent = 'Sesión cerrada';
             const disc = authStat.querySelector('.disconnect');
             if (disc) disc.remove();
@@ -901,6 +947,25 @@
                 if (ok) { onAuthed(); }
                 else { showAuthError('Sesión expirada — vuelve a conectar'); }
             }
+        }
+
+        async function init() {
+            document.getElementById('showOrigin').textContent = getAuthorizedOrigin();
+            syncClientConfigUi();
+
+            if (!getClientId()) {
+                banner.style.display = 'block';
+                return;
+            }
+
+            const stored = localStorage.getItem(SK_ACCESS);
+            if (stored && isTokenValid()) {
+                accessToken = stored;
+                onAuthed();
+                return;
+            }
+
+            clearStoredTokens();
         }
 
         init();

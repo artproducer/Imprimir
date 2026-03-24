@@ -452,19 +452,22 @@
                 <span>PDF · DOC · JPG · PNG · cualquier formato</span>
             </div>
         </div>
+            <input type="file" id="fileInput" multiple accept="*/*" disabled>
+            <div class="drop-icon">⬆</div>
+            <div class="drop-text">
+                Arrastra archivos aquí o haz clic para seleccionar
+                <span>PDF · DOC · JPG · PNG · cualquier formato</span>
+            </div>
+        </div>
 
         <div class="file-list" id="fileList"></div>
         <button class="send-btn" id="sendBtn" disabled>Enviar a impresora</button>
         <div class="status" id="status"></div>
         <div class="destination">variedadeslg@print.epsonconnect.com</div>
-
     </div>
     <script>
         // ─── CONFIG ────────────────────────────────────────────────────────────────
-        // Opción A: pega tu Client ID aquí para no pedirlo nunca
-        const HARDCODED_CLIENT_ID = '';
-        // ──────────────────────────────────────────────────────────────────────────
-
+        const HARDCODED_CLIENT_ID = ''; // Pega tu Client ID aquí para no pedirlo ni mostrarlo
         const DEST = 'variedadeslg@print.epsonconnect.com';
         const SCOPE = 'https://www.googleapis.com/auth/gmail.send';
         const SK_CID = 'print_client_id';
@@ -487,63 +490,55 @@
         const clientIdInput = document.getElementById('clientIdInput');
         const authConfigBtn = document.getElementById('authConfigBtn');
 
-        // ─── CLIENT ID ─────────────────────────────────────────────────────────────
-        function getSavedClientId() {
-            return localStorage.getItem(SK_CID) || '';
-        }
-        function getClientId() {
-            return HARDCODED_CLIENT_ID || getSavedClientId();
-        }
+        // ─── UTILS ─────────────────────────────────────────────────────────────────
+        function getSavedClientId() { return localStorage.getItem(SK_CID) || ''; }
+        function getClientId() { return HARDCODED_CLIENT_ID || getSavedClientId(); }
         function maskClientId(clientId) {
             if (!clientId) return 'sin Client ID';
             if (clientId.length <= 30) return clientId;
             return clientId.slice(0, 12) + '...' + clientId.slice(-18);
         }
+
         function syncClientConfigUi() {
             if (HARDCODED_CLIENT_ID) {
-                authConfigBtn.style.display = 'none';
-                clientIdInput.value = HARDCODED_CLIENT_ID;
+                if (authConfigBtn) authConfigBtn.style.display = 'none';
+                if (clientIdInput) clientIdInput.value = HARDCODED_CLIENT_ID;
+                if (banner) banner.style.display = 'none';
                 return;
             }
-
             const saved = getSavedClientId();
-            clientIdInput.value = saved;
-            authConfigBtn.textContent = saved
-                ? 'Client ID: ' + maskClientId(saved)
-                : 'Configurar OAuth';
+            if (clientIdInput) clientIdInput.value = saved;
+            if (authConfigBtn) authConfigBtn.textContent = saved ? 'Client ID: ' + maskClientId(saved) : 'Configurar OAuth';
         }
-        function openConfigBanner() {
+
+        window.openConfigBanner = function() {
             syncClientConfigUi();
-            banner.style.display = 'block';
-            clientIdInput.focus();
-        }
-        function saveClientId() {
+            if (banner) banner.style.display = 'block';
+            if (clientIdInput) clientIdInput.focus();
+        };
+
+        window.saveClientId = function() {
+            if (!clientIdInput) return;
             const val = clientIdInput.value.trim();
             if (!val) return;
             localStorage.setItem(SK_CID, val);
             syncClientConfigUi();
-            banner.style.display = 'none';
+            if (banner) banner.style.display = 'none';
             if (window.google) initGoogleTokenClient();
-        }
+        };
 
-        function clearClientId() {
+        window.clearClientId = function() {
             if (HARDCODED_CLIENT_ID) return;
             localStorage.removeItem(SK_CID);
-            clientIdInput.value = '';
+            if (clientIdInput) clientIdInput.value = '';
             syncClientConfigUi();
-            banner.style.display = 'block';
-        }
+            if (banner) banner.style.display = 'block';
+        };
 
-        // ─── AUTH FLOW (Token Client - Implicit Grant) ─────────────────────────────
+        // ─── AUTHENTICATION FLOW (GIS Token Client) ────────────────────────────────
         function initGoogleTokenClient() {
             const clientId = getClientId();
-            if (!clientId) return false;
-            
-            if (!(window.google && google.accounts && google.accounts.oauth2)) {
-                showAuthError('Google Identity Services no cargado. Reintentando...');
-                // Si no se ha cargado todavÃ­a, intentamos cargarlo dinÃ¡micamente o esperar
-                return false;
-            }
+            if (!clientId || !window.google) return false;
 
             try {
                 tokenClient = google.accounts.oauth2.initTokenClient({
@@ -552,22 +547,21 @@
                     callback: handleTokenResponse,
                     error_callback: (err) => {
                         console.error('GIS Error:', err);
-                        if (err?.type === 'popup_closed') {
-                            showAuthError('Ventana cerrada antes de terminar.');
-                        } else {
-                            showAuthError('Error: ' + (err?.message || err?.type || 'Sesión no iniciada'));
-                        }
+                        const msg = (err && err.type === 'popup_closed') 
+                            ? 'Ventana emergente cerrada' 
+                            : 'Error de Google Workspace';
+                        showAuthError(msg);
                     }
                 });
                 return true;
             } catch (e) {
-                console.error('initTokenClient crash:', e);
-                showAuthError('Error al inicializar sesión: ' + e.message);
+                console.error('GIS Init Error:', e);
+                showAuthError('Error inicializando: ' + e.message);
                 return false;
             }
         }
 
-        function startAuth() {
+        window.startAuth = function() {
             const clientId = getClientId();
             if (!clientId) {
                 openConfigBanner();
@@ -575,33 +569,25 @@
             }
 
             setAuthLoading();
-            
-            // Asegurarse de que el script de Google estÃ© cargado
+
             if (!window.google) {
-                const script = document.createElement('script');
-                script.src = "https://accounts.google.com/gsi/client";
-                script.onload = () => {
-                    if (initGoogleTokenClient()) tokenClient.requestAccessToken({ prompt: 'consent' });
-                };
-                document.head.appendChild(script);
+                showAuthError('La librería de Google no hs cargado. Verifique su bloqueador de anuncios o conexión.');
                 return;
             }
 
-            if (!initGoogleTokenClient()) return;
+            if (!tokenClient && !initGoogleTokenClient()) return;
             
             try {
-                // Request access token with prompt 'consent' to ensure we get a fresh flow
                 tokenClient.requestAccessToken({ prompt: 'consent' });
             } catch (e) {
-                showAuthError('Cerrado o bloqueado por el navegador.');
-                console.error(e);
+                showAuthError('Navegador bloquea ventana de Google');
             }
-        }
+        };
 
         function handleTokenResponse(response) {
             if (!response || response.error) {
                 const msg = response?.error_description || response?.error || 'Sin respuesta';
-                showAuthError('Error de Google: ' + msg);
+                showAuthError('Error de acceso: ' + msg);
                 return;
             }
             saveTokens(response);
@@ -611,8 +597,9 @@
         function saveTokens(data) {
             accessToken = data.access_token;
             localStorage.setItem(SK_ACCESS, data.access_token);
-            // Guardar expiraciÃ³n (por defecto 1h en Google)
-            localStorage.setItem(SK_EXPIRY, String(Date.now() + ((data.expires_in || 3600) - 60) * 1000));
+            // Default Google token expiration is generally 3600 seconds
+            const validSecs = data.expires_in || 3600;
+            localStorage.setItem(SK_EXPIRY, String(Date.now() + (validSecs - 60) * 1000));
         }
 
         function isTokenValid() {
@@ -620,6 +607,13 @@
             return expiry > Date.now();
         }
 
+        async function ensureValidToken() {
+            if (isTokenValid() && accessToken) return true;
+            const stored = localStorage.getItem(SK_ACCESS);
+            if (stored && isTokenValid()) {
+                accessToken = stored;
+                return true;
+            }
             return false;
         }
 
@@ -629,25 +623,23 @@
             accessToken = null;
         }
 
-        // ─── UI states ─────────────────────────────────────────────────────────────
+        // ─── UI AUTH STATES ────────────────────────────────────────────────────────
         function setAuthLoading() {
-            authText.textContent = 'Conectando...';
+            if (authText) authText.textContent = 'Conectando...';
         }
 
         function onAuthed() {
-            authBtn.className = 'connected';
-            authBtn.onclick = null;
+            if (authBtn) {
+                authBtn.className = 'connected';
+                authBtn.onclick = null;
+            }
+            if (authStat) {
+                authStat.className = 'auth-status connected';
+                authStat.style.color = '';
+            }
+            if (authText) authText.textContent = '✓ Sesión activa y lista para enviar';
 
-            // Leer email del token (JWT decode ligero, solo payload)
-            const stored = localStorage.getItem(SK_ACCESS);
-            if (stored) accessToken = stored;
-
-            authStat.className = 'auth-status connected';
-            authStat.style.color = '';
-            authText.textContent = '✓ Sesión activa';
-
-            // Botón de cerrar sesión
-            if (!authStat.querySelector('.disconnect')) {
+            if (authStat && !authStat.querySelector('.disconnect')) {
                 const btn = document.createElement('button');
                 btn.className = 'disconnect';
                 btn.textContent = 'cerrar sesión';
@@ -655,87 +647,121 @@
                 authStat.appendChild(btn);
             }
 
-            dropzone.classList.remove('disabled');
-            fileInput.disabled = false;
-            render();
+            if (dropzone) dropzone.classList.remove('disabled');
+            if (fileInput) fileInput.disabled = false;
+            renderFiles();
         }
 
         function showAuthError(msg) {
-            authText.textContent = msg;
-            authStat.style.color = 'var(--danger)';
+            if (authText) authText.textContent = msg;
+            if (authStat) {
+                authStat.style.color = 'var(--danger)';
+                authStat.className = 'auth-status';
+            }
         }
 
-        function disconnect() {
+        window.disconnect = function() {
             clearStoredTokens();
-            accessToken = null;
-            authBtn.className = '';
-            authBtn.onclick = startAuth;
-            authBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" width="16" height="16">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-    </svg>
-    Conectar con Google`;
-            authStat.className = 'auth-status';
-            authStat.style.color = '';
-            authText.textContent = 'Sesión cerrada';
-            const disc = authStat.querySelector('.disconnect');
-            if (disc) disc.remove();
-            dropzone.classList.add('disabled');
-            fileInput.disabled = true;
-            sendBtn.disabled = true;
+            
+            if (authBtn) {
+                authBtn.className = '';
+                authBtn.onclick = startAuth;
+                authBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg> Conectar con Google`;
+            }
+            
+            if (authStat) {
+                authStat.className = 'auth-status';
+                authStat.style.color = '';
+                const disc = authStat.querySelector('.disconnect');
+                if (disc) disc.remove();
+            }
+            if (authText) authText.textContent = 'Sesión cerrada';
+
+            if (dropzone) dropzone.classList.add('disabled');
+            if (fileInput) fileInput.disabled = true;
+            if (sendBtn) sendBtn.disabled = true;
             files = [];
-            fileList.innerHTML = '';
-            statusEl.textContent = '';
+            if (fileList) fileList.innerHTML = '';
+            if (statusEl) statusEl.textContent = '';
         }
 
-        // ─── DRAG & DROP ───────────────────────────────────────────────────────────
-        dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
-        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-        dropzone.addEventListener('drop', e => {
-            e.preventDefault(); dropzone.classList.remove('drag-over');
-            addFiles([...e.dataTransfer.files]);
-        });
-        fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+        // ─── FILE DRAG AND DROP ────────────────────────────────────────────────────
+        if (dropzone) {
+            dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+            dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+            dropzone.addEventListener('drop', e => {
+                e.preventDefault(); 
+                dropzone.classList.remove('drag-over');
+                if (dropzone.classList.contains('disabled')) return;
+                addFiles([...e.dataTransfer.files]);
+            });
+        }
+        
+        if (fileInput) {
+            fileInput.addEventListener('change', () => { 
+                addFiles([...fileInput.files]); 
+                fileInput.value = ''; 
+            });
+        }
 
         function addFiles(newFiles) {
-            newFiles.forEach(f => { if (!files.find(x => x.name === f.name && x.size === f.size)) files.push(f); });
-            render();
+            newFiles.forEach(f => { 
+                if (!files.find(x => x.name === f.name && x.size === f.size)) {
+                    files.push(f); 
+                }
+            });
+            renderFiles();
         }
-        function removeFile(i) { files.splice(i, 1); render(); }
+
+        window.removeFile = function(i) { 
+            files.splice(i, 1); 
+            renderFiles(); 
+        };
+
         function formatSize(b) {
             if (b < 1024) return b + ' B';
             if (b < 1048576) return (b / 1024).toFixed(0) + ' KB';
             return (b / 1048576).toFixed(1) + ' MB';
         }
-        function getExt(name) { const p = name.lastIndexOf('.'); return p >= 0 ? name.slice(p + 1) : '—'; }
 
-        function render() {
+        function getExt(name) { 
+            const p = name.lastIndexOf('.'); 
+            return p >= 0 ? name.slice(p + 1) : '—'; 
+        }
+
+        function renderFiles() {
+            if (!fileList) return;
             fileList.innerHTML = '';
             files.forEach((f, i) => {
                 const item = document.createElement('div');
                 item.className = 'file-item';
                 item.innerHTML = `
-      <span class="file-ext">${getExt(f.name)}</span>
-      <span class="file-name" title="${f.name}">${f.name}</span>
-      <span class="file-size">${formatSize(f.size)}</span>
-      <button class="file-remove">×</button>`;
-                item.querySelector('.file-remove').onclick = () => removeFile(i);
+                    <span class="file-ext">${getExt(f.name)}</span>
+                    <span class="file-name" title="${f.name}">${f.name}</span>
+                    <span class="file-size">${formatSize(f.size)}</span>
+                    <button class="file-remove" onclick="removeFile(${i})">×</button>`;
                 fileList.appendChild(item);
             });
-            sendBtn.disabled = files.length === 0 || !accessToken;
-            statusEl.textContent = '';
-            statusEl.className = 'status';
+            if (sendBtn) sendBtn.disabled = files.length === 0 || !accessToken;
+            if (statusEl) {
+                statusEl.textContent = '';
+                statusEl.className = 'status';
+            }
         }
 
         function setStatus(type, msg) {
+            if (!statusEl) return;
             statusEl.className = 'status ' + type;
             statusEl.innerHTML = type === 'loading' ? `<span class="spinner">↻</span>${msg}` : msg;
         }
 
-        // ─── GMAIL SEND ────────────────────────────────────────────────────────────
+        // ─── GMAIL SEND FUNCTIONALITY ──────────────────────────────────────────────
         function readFileAsBase64(file) {
             return new Promise((res, rej) => {
                 const r = new FileReader();
@@ -772,111 +798,93 @@
 
             const bytes = new TextEncoder().encode(raw);
             let binary = '';
-            bytes.forEach(b => binary += String.fromCharCode(b));
-            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary)
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
         }
 
-        sendBtn.addEventListener('click', async () => {
-            if (!files.length) return;
-            sendBtn.disabled = true;
-            setStatus('loading', 'Verificando sesión...');
-
-            // Auto-renovar token si expiró
-            const ok = await ensureValidToken();
-            if (!ok) {
-                setStatus('error', '✕ Sesión expirada. Haz clic en Conectar.');
-                sendBtn.disabled = false;
-                disconnect();
-                return;
-            }
-
-            try {
-                setStatus('loading', 'Preparando archivos...');
-                const attachments = await Promise.all(files.map(async f => ({
-                    name: f.name,
-                    mimeType: f.type || 'application/octet-stream',
-                    data: await readFileAsBase64(f)
-                })));
-
-                setStatus('loading', 'Enviando...');
-                const raw = await buildMimeMessage(attachments);
-
-                const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-                    method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ raw })
-                });
-
-                if (res.status === 401) {
-                    // Intentar refresh una vez más
-                    const refreshed = await refreshAccessToken();
-                    if (!refreshed) { disconnect(); throw new Error('Sesión expirada. Reconecta.'); }
-                    // Reintentar
-                    sendBtn.click(); return;
-                }
-
-                if (!res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.error?.message || `Error ${res.status}`);
-                }
-
-                setStatus('success', `✓ ${files.length} archivo${files.length > 1 ? 's' : ''} enviado${files.length > 1 ? 's' : ''}`);
-                files = [];
-                render();
+        if (sendBtn) {
+            sendBtn.addEventListener('click', async () => {
+                if (!files.length) return;
                 sendBtn.disabled = true;
+                setStatus('loading', 'Verificando sesión...');
 
-            } catch (err) {
-                setStatus('error', '✕ ' + err.message);
-                sendBtn.disabled = false;
+                if (!(await ensureValidToken())) {
+                    setStatus('error', '✕ Sesión expirada. Por favor conecte nuevamente.');
+                    sendBtn.disabled = false;
+                    disconnect();
+                    return;
+                }
+
+                try {
+                    setStatus('loading', 'Preparando archivos (' + files.length + ')...');
+                    const attachments = await Promise.all(files.map(async f => ({
+                        name: f.name,
+                        mimeType: f.type || 'application/octet-stream',
+                        data: await readFileAsBase64(f)
+                    })));
+
+                    setStatus('loading', 'Enviando a impresión...');
+                    const raw = await buildMimeMessage(attachments);
+
+                    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                        method: 'POST',
+                        headers: { 
+                            'Authorization': 'Bearer ' + accessToken, 
+                            'Content-Type': 'application/json' 
+                        },
+                        body: JSON.stringify({ raw })
+                    });
+
+                    if (res.status === 401) {
+                        disconnect();
+                        throw new Error('Su sesión de Google ha expirado. Autentíquese de nuevo.');
+                    }
+
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.error?.message || `Error HTTP ${res.status}`);
+                    }
+
+                    setStatus('success', `✓ ${files.length} archivo${files.length > 1 ? 's' : ''} enviado${files.length > 1 ? 's' : ''}`);
+                    files = [];
+                    renderFiles();
+                } catch (err) {
+                    setStatus('error', '✕ ' + err.message);
+                    sendBtn.disabled = false;
+                }
+            });
+        }
+
+        // ─── INITIALIZATION ────────────────────────────────────────────────────────
+        window.addEventListener('load', () => {
+            // Informar del origen autorizado para configurar en consola de Google
+            if (showOriginEl) showOriginEl.textContent = location.origin;
+            
+            syncClientConfigUi();
+
+            if (!getClientId()) {
+                if (banner) banner.style.display = 'block';
+            } else {
+                // Si el script de Google se ha cargado externamente
+                if (window.google) initGoogleTokenClient();
+                
+                // Si ya tenemos sesión válida en localStorage, restáurala silente
+                if (isTokenValid()) {
+                    accessToken = localStorage.getItem(SK_ACCESS);
+                    onAuthed();
+                }
+            }
+            
+            // Si por error queda en la URL código de un flujo viejo por PKCE, limpiarlo
+            if (location.search.includes('code=')) {
+                history.replaceState(null, '', location.origin + location.pathname);
             }
         });
-
-        // ─── INIT ──────────────────────────────────────────────────────────────────
-        async function init() {
-            // Mostrar origen actual en el banner
-            document.getElementById('showOrigin').textContent = getRedirectUri();
-            syncClientConfigUi();
-
-            if (!getClientId()) {
-                banner.style.display = 'block';
-            }
-
-            // ¿Viene de un redirect OAuth?
-            if (location.search.includes('code=')) {
-                await handleCallback();
-                return;
-            }
-
-            // ¿Hay sesión guardada?
-            const refreshToken = localStorage.getItem(SK_REFRESH);
-            if (refreshToken) {
-                setAuthLoading();
-                const ok = await refreshAccessToken();
-                if (ok) { onAuthed(); }
-                else { showAuthError('Sesión expirada — vuelve a conectar'); }
-            }
-        }
-
-        async function init() {
-            document.getElementById('showOrigin').textContent = getAuthorizedOrigin();
-            syncClientConfigUi();
-
-            if (!getClientId()) {
-                banner.style.display = 'block';
-                return;
-            }
-
-            const stored = localStorage.getItem(SK_ACCESS);
-            if (stored && isTokenValid()) {
-                accessToken = stored;
-                onAuthed();
-                return;
-            }
-
-            clearStoredTokens();
-        }
-
-        init();
     </script>
 </body>
 

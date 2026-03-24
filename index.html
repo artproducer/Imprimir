@@ -197,19 +197,37 @@
         }
 
         .auth-status.connected { color: var(--success); }
-
-        .auth-status .disconnect {
-            font-size: 11px;
+        
+        .disconnect {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 10px;
             color: var(--muted);
+            opacity: 0.5;
             cursor: pointer;
-            background: none;
-            border: none;
-            text-decoration: underline;
-            text-underline-offset: 3px;
-            transition: color 0.2s;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            padding: 4px 10px;
+            border-radius: 20px;
+            text-decoration: none;
+            transition: all 0.2s;
+            z-index: 10;
         }
 
-        .auth-status .disconnect:hover { color: var(--danger); }
+        .disconnect:hover { 
+            color: var(--danger);
+            opacity: 1;
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+
+        @media (max-width: 400px) or (max-height: 600px) {
+            .disconnect {
+                top: 12px;
+                right: 12px;
+            }
+        }
 
         .auth-config-link {
             background: none;
@@ -748,12 +766,13 @@
             }
             if (authText) authText.textContent = '✓ Sesión activa y lista para enviar';
 
-            if (authStat && !authStat.querySelector('.disconnect')) {
+            const container = document.querySelector('.container');
+            if (container && !container.querySelector('.disconnect')) {
                 const btn = document.createElement('button');
                 btn.className = 'disconnect';
-                btn.textContent = 'cerrar sesión';
+                btn.textContent = 'Cerrar sesión';
                 btn.onclick = disconnect;
-                authStat.appendChild(btn);
+                container.appendChild(btn);
             }
 
             if (dropzone) dropzone.classList.remove('disabled');
@@ -790,9 +809,10 @@
             if (authStat) {
                 authStat.className = 'auth-status';
                 authStat.style.color = '';
-                const disc = authStat.querySelector('.disconnect');
-                if (disc) disc.remove();
             }
+            const disc = document.querySelector('.disconnect');
+            if (disc) disc.remove();
+
             if (authText) authText.textContent = 'Sesión cerrada';
 
             if (dropzone) dropzone.classList.add('disabled');

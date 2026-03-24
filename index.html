@@ -414,6 +414,101 @@
             color: var(--muted);
             opacity: 0.6;
         }
+
+        /* Responsive Optimization for small screens (350x480) */
+        @media (max-width: 400px) or (max-height: 600px) {
+            body {
+                padding: 16px;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-start; /* Start from top on small screens to avoid clipping */
+                min-height: 100vh;
+                height: auto;
+            }
+
+            .container {
+                padding: 24px 20px;
+                border-radius: 24px;
+                margin: auto auto; /* Best effort to center if fits, or scroll from top */
+                width: 100%;
+                max-width: none;
+            }
+
+            .header {
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .header p {
+                font-size: 12px;
+            }
+
+            #authBtn {
+                padding: 14px;
+                font-size: 14px;
+                margin-bottom: 8px;
+            }
+
+            .auth-status {
+                margin-bottom: 16px;
+                gap: 4px;
+            }
+
+            .auth-config-link {
+                margin: -12px auto 16px;
+            }
+
+            .dropzone {
+                padding: 28px 16px;
+                border-radius: 16px;
+            }
+
+            .drop-icon {
+                font-size: 24px;
+                margin-bottom: 12px;
+            }
+
+            .drop-icon svg {
+                width: 32px;
+                height: 32px;
+            }
+
+            .drop-text {
+                font-size: 13px;
+            }
+
+            .drop-text span {
+                font-size: 11px;
+                margin-top: 4px;
+            }
+
+            .file-list {
+                margin-top: 16px;
+                gap: 8px;
+            }
+
+            .file-item {
+                padding: 10px 12px;
+            }
+
+            .file-name {
+                font-size: 13px;
+            }
+
+            .send-btn {
+                margin-top: 16px;
+                padding: 16px;
+                font-size: 14px;
+            }
+
+            .footer-info {
+                margin-top: 24px;
+                padding-top: 16px;
+            }
+        }
     </style>
 </head>
 

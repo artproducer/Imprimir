@@ -775,7 +775,11 @@
         function setStatus(type, msg) {
             if (!statusEl) return;
             statusEl.className = 'status ' + type;
-            statusEl.innerHTML = type === 'loading' ? `<span class="spinner">↻</span>${msg}` : msg;
+            let icon = '';
+            if (type === 'loading') icon = '<span class="spinner"></span>';
+            if (type === 'success') icon = '<span style="font-size: 1.2em; margin-right: 8px;">✓</span>';
+            if (type === 'error') icon = '<span style="font-size: 1.2em; margin-right: 8px;">✕</span>';
+            statusEl.innerHTML = `${icon}${msg}`;
         }
 
         // ─── GMAIL SEND FUNCTIONALITY ──────────────────────────────────────────────
@@ -867,7 +871,7 @@
                         throw new Error(err.error?.message || `Error HTTP ${res.status}`);
                     }
 
-                    setStatus('success', `✓ ${files.length} archivo${files.length > 1 ? 's' : ''} enviado${files.length > 1 ? 's' : ''}`);
+                    setStatus('success', `¡Envío exitoso! Se han enviado ${files.length} archivo${files.length > 1 ? 's' : ''}`);
                     files = [];
                     renderFiles();
                 } catch (err) {

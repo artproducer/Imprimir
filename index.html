@@ -87,6 +87,18 @@
             cursor: pointer;
         }
 
+        .config-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        #config-banner button.secondary {
+            background: transparent;
+            color: #f59e0b;
+            border: 1px solid #4a3500;
+        }
+
         .label {
             font-family: 'DM Mono', monospace;
             font-size: 10px;
@@ -173,6 +185,25 @@
 
         .auth-status .disconnect:hover {
             color: var(--danger);
+        }
+
+        .auth-config-link {
+            display: block;
+            width: fit-content;
+            margin: -10px auto 20px;
+            background: none;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            font-family: 'DM Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
+        .auth-config-link:hover {
+            color: var(--text);
         }
 
         .dropzone {
@@ -382,10 +413,13 @@
         <div id="config-banner" style="display:none">
             <p>Configura tu Google OAuth Client ID.<br>
                 console.cloud.google.com → Credenciales → OAuth 2.0 → Aplicación web<br>
-                URI autorizado: <strong id="showOrigin" style="color:#fff"></strong></p>
+                Redirect URI exacto: <strong id="showOrigin" style="color:#fff"></strong><br>
+                Debe coincidir exactamente, incluida la / final.</p>
             <input type="text" id="clientIdInput" placeholder="XXXXXXXXXXXX.apps.googleusercontent.com">
-            <br>
-            <button onclick="saveClientId()">Guardar y continuar</button>
+            <div class="config-actions">
+                <button type="button" onclick="saveClientId()">Guardar y continuar</button>
+                <button type="button" class="secondary" onclick="clearClientId()">Borrar guardado</button>
+            </div>
         </div>
 
         <div class="label">enviar a impresora</div>
@@ -407,6 +441,7 @@
         <div class="auth-status" id="authStatus">
             <span id="authText">No conectado</span>
         </div>
+        <button type="button" class="auth-config-link" id="authConfigBtn" onclick="openConfigBanner()">Configurar OAuth</button>
 
         <div class="dropzone disabled" id="dropzone">
             <input type="file" id="fileInput" multiple accept="*/*" disabled>
@@ -449,16 +484,52 @@
         const authStat = document.getElementById('authStatus');
         const authText = document.getElementById('authText');
         const banner = document.getElementById('config-banner');
+        const clientIdInput = document.getElementById('clientIdInput');
+        const authConfigBtn = document.getElementById('authConfigBtn');
 
         // ─── CLIENT ID ─────────────────────────────────────────────────────────────
+        function getSavedClientId() {
+            return localStorage.getItem(SK_CID) || '';
+        }
         function getClientId() {
-            return HARDCODED_CLIENT_ID || localStorage.getItem(SK_CID) || '';
+            return HARDCODED_CLIENT_ID || getSavedClientId();
+        }
+        function maskClientId(clientId) {
+            if (!clientId) return 'sin Client ID';
+            if (clientId.length <= 30) return clientId;
+            return clientId.slice(0, 12) + '...' + clientId.slice(-18);
+        }
+        function syncClientConfigUi() {
+            if (HARDCODED_CLIENT_ID) {
+                authConfigBtn.style.display = 'none';
+                clientIdInput.value = HARDCODED_CLIENT_ID;
+                return;
+            }
+
+            const saved = getSavedClientId();
+            clientIdInput.value = saved;
+            authConfigBtn.textContent = saved
+                ? 'Client ID: ' + maskClientId(saved)
+                : 'Configurar OAuth';
+        }
+        function openConfigBanner() {
+            syncClientConfigUi();
+            banner.style.display = 'block';
+            clientIdInput.focus();
         }
         function saveClientId() {
-            const val = document.getElementById('clientIdInput').value.trim();
+            const val = clientIdInput.value.trim();
             if (!val) return;
             localStorage.setItem(SK_CID, val);
+            syncClientConfigUi();
             banner.style.display = 'none';
+        }
+        function clearClientId() {
+            if (HARDCODED_CLIENT_ID) return;
+            localStorage.removeItem(SK_CID);
+            clientIdInput.value = '';
+            syncClientConfigUi();
+            banner.style.display = 'block';
         }
 
         // ─── PKCE helpers ──────────────────────────────────────────────────────────
@@ -499,9 +570,16 @@
             location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
         }
 
+        function getCanonicalPath() {
+            const path = location.pathname || '/';
+            if (path === '/index.html') return '/';
+            if (path.endsWith('/index.html')) return path.slice(0, -'index.html'.length);
+            return path;
+        }
+
         function getRedirectUri() {
-            // Misma URL sin fragmento ni query
-            return location.origin + location.pathname;
+            // URL canÃ³nica sin fragmento ni query
+            return location.origin + getCanonicalPath();
         }
 
         async function handleCallback() {
@@ -511,7 +589,7 @@
             if (!code) return;
 
             // Limpiar URL
-            history.replaceState(null, '', location.pathname);
+            history.replaceState(null, '', getCanonicalPath());
 
             const verifier = sessionStorage.getItem('pkce_verifier');
             const state = sessionStorage.getItem('pkce_state');
@@ -803,6 +881,7 @@
         async function init() {
             // Mostrar origen actual en el banner
             document.getElementById('showOrigin').textContent = getRedirectUri();
+            syncClientConfigUi();
 
             if (!getClientId()) {
                 banner.style.display = 'block';

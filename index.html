@@ -523,7 +523,9 @@
             localStorage.setItem(SK_CID, val);
             syncClientConfigUi();
             banner.style.display = 'none';
+            if (window.google) initGoogleTokenClient();
         }
+
         function clearClientId() {
             if (HARDCODED_CLIENT_ID) return;
             localStorage.removeItem(SK_CID);
@@ -532,37 +534,40 @@
             banner.style.display = 'block';
         }
 
-        // ─── PKCE helpers ──────────────────────────────────────────────────────────
-        function getAuthorizedOrigin() {
-            return location.origin;
-        }
-
-        // ─── AUTH FLOW (Authorization Code + PKCE) ─────────────────────────────────
+        // ─── AUTH FLOW (Token Client - Implicit Grant) ─────────────────────────────
         function initGoogleTokenClient() {
             const clientId = getClientId();
             if (!clientId) return false;
+            
             if (!(window.google && google.accounts && google.accounts.oauth2)) {
-                showAuthError('No se pudo cargar Google Identity Services.');
+                showAuthError('Google Identity Services no cargado. Reintentando...');
+                // Si no se ha cargado todavÃ­a, intentamos cargarlo dinÃ¡micamente o esperar
                 return false;
             }
 
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: clientId,
-                scope: SCOPE,
-                callback: handleTokenResponse,
-                error_callback: (err) => {
-                    const message = err?.message || err?.type || 'Error desconocido';
-                    if (err?.type === 'popup_closed') {
-                        showAuthError('Inicio cancelado.');
-                        return;
+            try {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: clientId,
+                    scope: SCOPE,
+                    callback: handleTokenResponse,
+                    error_callback: (err) => {
+                        console.error('GIS Error:', err);
+                        if (err?.type === 'popup_closed') {
+                            showAuthError('Ventana cerrada antes de terminar.');
+                        } else {
+                            showAuthError('Error: ' + (err?.message || err?.type || 'Sesión no iniciada'));
+                        }
                     }
-                    showAuthError('Error con Google: ' + message);
-                }
-            });
-            return true;
+                });
+                return true;
+            } catch (e) {
+                console.error('initTokenClient crash:', e);
+                showAuthError('Error al inicializar sesión: ' + e.message);
+                return false;
+            }
         }
 
-        function startAuth(prompt = 'consent') {
+        function startAuth() {
             const clientId = getClientId();
             if (!clientId) {
                 openConfigBanner();
@@ -570,136 +575,43 @@
             }
 
             setAuthLoading();
+            
+            // Asegurarse de que el script de Google estÃ© cargado
+            if (!window.google) {
+                const script = document.createElement('script');
+                script.src = "https://accounts.google.com/gsi/client";
+                script.onload = () => {
+                    if (initGoogleTokenClient()) tokenClient.requestAccessToken({ prompt: 'consent' });
+                };
+                document.head.appendChild(script);
+                return;
+            }
+
             if (!initGoogleTokenClient()) return;
-            tokenClient.requestAccessToken({ prompt });
+            
+            try {
+                // Request access token with prompt 'consent' to ensure we get a fresh flow
+                tokenClient.requestAccessToken({ prompt: 'consent' });
+            } catch (e) {
+                showAuthError('Cerrado o bloqueado por el navegador.');
+                console.error(e);
+            }
         }
 
         function handleTokenResponse(response) {
-            if (!response) {
-                showAuthError('No se recibiÃ³ respuesta de Google.');
+            if (!response || response.error) {
+                const msg = response?.error_description || response?.error || 'Sin respuesta';
+                showAuthError('Error de Google: ' + msg);
                 return;
             }
-            if (response.error) {
-                showAuthError('Error al obtener token: ' + (response.error_description || response.error));
-                return;
-            }
-
             saveTokens(response);
             onAuthed();
         }
 
-        function getRedirectUri() {
-            // URL canÃ³nica sin fragmento ni query
-            return location.origin + getCanonicalPath();
-        }
-
-        async function handleCallback() {
-            const params = new URLSearchParams(location.search);
-            const code = params.get('code');
-            const retState = params.get('state');
-            if (!code) return;
-
-            // Limpiar URL
-            history.replaceState(null, '', getCanonicalPath());
-
-            const verifier = sessionStorage.getItem('pkce_verifier');
-            const state = sessionStorage.getItem('pkce_state');
-            sessionStorage.removeItem('pkce_verifier');
-            sessionStorage.removeItem('pkce_state');
-
-            if (retState !== state) {
-                showAuthError('State inválido. Intenta de nuevo.'); return;
-            }
-
-            setAuthLoading();
-
-            try {
-                const res = await fetch(TOKEN_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        code,
-                        client_id: getClientId(),
-                        redirect_uri: getRedirectUri(),
-                        grant_type: 'authorization_code',
-                        code_verifier: verifier
-                    })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error_description || data.error);
-
-                saveTokens(data);
-                onAuthed();
-            } catch (e) {
-                showAuthError('Error al obtener token: ' + e.message);
-            }
-        }
-
-        async function refreshAccessToken() {
-            const refreshToken = localStorage.getItem(SK_REFRESH);
-            if (!refreshToken) return false;
-
-            try {
-                const res = await fetch(TOKEN_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        refresh_token: refreshToken,
-                        client_id: getClientId(),
-                        grant_type: 'refresh_token'
-                    })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error);
-
-                saveTokens(data);
-                return true;
-            } catch (e) {
-                return false;
-            }
-        }
-
         function saveTokens(data) {
             accessToken = data.access_token;
             localStorage.setItem(SK_ACCESS, data.access_token);
-            localStorage.setItem(SK_EXPIRY, Date.now() + (data.expires_in - 60) * 1000);
-            if (data.refresh_token) {
-                localStorage.setItem(SK_REFRESH, data.refresh_token);
-            }
-        }
-
-        function isTokenValid() {
-            const expiry = localStorage.getItem(SK_EXPIRY);
-            return expiry && Date.now() < parseInt(expiry);
-        }
-
-        async function ensureValidToken() {
-            if (isTokenValid() && accessToken) return true;
-
-            // Intentar con el token guardado
-            const stored = localStorage.getItem(SK_ACCESS);
-            const expiry = localStorage.getItem(SK_EXPIRY);
-            if (stored && expiry && Date.now() < parseInt(expiry)) {
-                accessToken = stored;
-                return true;
-            }
-
-            // Refresh silencioso
-            return await refreshAccessToken();
-        }
-
-        // Overrides para sitio estÃ¡tico: token directo con GIS, sin client_secret ni refresh_token
-        async function refreshAccessToken() {
-            return false;
-        }
-
-        function clearStoredTokens() {
-            [SK_ACCESS, SK_EXPIRY].forEach(k => localStorage.removeItem(k));
-        }
-
-        function saveTokens(data) {
-            accessToken = data.access_token;
-            localStorage.setItem(SK_ACCESS, data.access_token);
+            // Guardar expiraciÃ³n (por defecto 1h en Google)
             localStorage.setItem(SK_EXPIRY, String(Date.now() + ((data.expires_in || 3600) - 60) * 1000));
         }
 
@@ -708,17 +620,13 @@
             return expiry > Date.now();
         }
 
-        async function ensureValidToken() {
-            if (isTokenValid() && accessToken) return true;
-
-            const stored = localStorage.getItem(SK_ACCESS);
-            if (stored && isTokenValid()) {
-                accessToken = stored;
-                return true;
-            }
-
-            clearStoredTokens();
             return false;
+        }
+
+        function clearStoredTokens() {
+            localStorage.removeItem(SK_ACCESS);
+            localStorage.removeItem(SK_EXPIRY);
+            accessToken = null;
         }
 
         // ─── UI states ─────────────────────────────────────────────────────────────

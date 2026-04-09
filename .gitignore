@@ -1,0 +1,23 @@
+# Supabase - IMPORTANT: Do not upload secrets
+supabase/.env
+supabase/.env.local
+.env
+.env.local
+
+# Supabase - Internal/Temp
+supabase/.temp/
+.supabase/
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.bak
